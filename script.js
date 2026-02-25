@@ -13,7 +13,13 @@ window.requestAnimationFrame(() => {
 });
 
 if (!prefersReducedMotion && scrollSection && scrollScene && scrollVideo) {
+  scrollVideo.muted = true;
+  scrollVideo.playsInline = true;
+  scrollVideo.setAttribute("playsinline", "");
+  scrollVideo.setAttribute("webkit-playsinline", "");
+
   let videoDuration = 0;
+  let videoReady = false;
   let isTicking = false;
   let isPlaying = false;
   let direction = 0;
@@ -25,6 +31,13 @@ if (!prefersReducedMotion && scrollSection && scrollScene && scrollVideo) {
   const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
   const updateLayers = (progress) => {
+    // On some mobile browsers (notably iOS Safari), video metadata/frames may not be available
+    // until after an explicit user gesture. Avoid hiding the start image until the video is ready.
+    if (!videoReady) {
+      if (startLayer) startLayer.style.opacity = "1";
+      if (endLayer) endLayer.style.opacity = "0";
+      return;
+    }
     if (startLayer) {
       startLayer.style.opacity = progress <= 0.02 ? "1" : "0";
     }
@@ -112,6 +125,20 @@ if (!prefersReducedMotion && scrollSection && scrollScene && scrollVideo) {
     scrollVideo.load();
   };
 
+  const primeMobilePlayback = () => {
+    // iOS Safari often requires a user gesture to allow seeking/scrubbing.
+    // A muted play() + pause() during a touch gesture "unlocks" the media element.
+    if (videoReady) return;
+    const playPromise = scrollVideo.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      playPromise
+        .then(() => {
+          scrollVideo.pause();
+        })
+        .catch(() => {});
+    }
+  };
+
   const setMode = (nextMode) => {
     mode = nextMode;
     document.body.classList.toggle("mode-buttons", mode === "buttons");
@@ -161,6 +188,7 @@ if (!prefersReducedMotion && scrollSection && scrollScene && scrollVideo) {
 
   scrollVideo.addEventListener("loadedmetadata", () => {
     videoDuration = scrollVideo.duration || 0;
+    videoReady = videoDuration > 0;
     scrollVideo.pause();
     scrollVideo.currentTime = 0;
     updateLayers(0);
@@ -171,6 +199,10 @@ if (!prefersReducedMotion && scrollSection && scrollScene && scrollVideo) {
       triggerPlay(dir);
     }
   });
+
+  // Attempt to prime video on first user interaction for mobile browsers.
+  document.addEventListener("touchstart", primeMobilePlayback, { passive: true, once: true });
+  document.addEventListener("pointerdown", primeMobilePlayback, { passive: true, once: true });
 
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onScroll);
